@@ -1,7 +1,8 @@
 'use client'
 
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo } from 'react'
 import { TrendingUp, TrendingDown } from 'lucide-react'
+import { formatUTCTime } from '@/utils/datetime'
 
 interface OrderbookViewProps {
     bids: [string, string][]
@@ -118,7 +119,10 @@ export default function OrderbookView({ bids, asks, midPrice, spread, lastUpdate
                             </span>
                         </div>
                         <div className="text-xs text-gray-500">
-                            {typeof window !== 'undefined' ? displayTime.toLocaleTimeString() : '--:--:--'}
+                            {typeof window !== 'undefined' ? 
+                                formatUTCTime(displayTime) : 
+                                '--:--:-- UTC'
+                            }
                         </div>
                     </div>
                 </div>

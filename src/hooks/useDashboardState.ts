@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { generateSampleMetrics } from '@/lib/sampleData'
 
 interface OrderbookData {
@@ -80,13 +80,13 @@ const initialState: DashboardState = {
 export function useDashboardState() {
     const [state, setState] = useState<DashboardState>(initialState)
 
-    const updateState = (updates: Partial<DashboardState>) => {
+    const updateState = useCallback((updates: Partial<DashboardState>) => {
         setState(prev => ({ ...prev, ...updates }))
-    }
+    }, [])
 
-    const addLog = (level: string, message: string) => {
+    const addLog = useCallback((level: string, message: string) => {
         const logEntry: LogEntry = {
-            timestamp: new Date(),
+            timestamp: new Date(), // Already in UTC when using new Date()
             level,
             message
         }
@@ -95,16 +95,16 @@ export function useDashboardState() {
             ...prev,
             logs: [...prev.logs.slice(-999), logEntry] // Keep last 1000 logs
         }))
-    }
+    }, [])
 
-    const addIncident = (incident: Incident) => {
+    const addIncident = useCallback((incident: Incident) => {
         setState(prev => ({
             ...prev,
             incidents: [...prev.incidents, incident]
         }))
-    }
+    }, [])
 
-    const updateOrderbook = (orderbookData: Partial<OrderbookData>) => {
+    const updateOrderbook = useCallback((orderbookData: Partial<OrderbookData>) => {
         console.log('🔄 updateOrderbook called with:', orderbookData)
         setState(prev => {
             const newState = {
@@ -114,9 +114,9 @@ export function useDashboardState() {
             console.log('✅ New orderbook state:', newState.orderbook_data)
             return newState
         })
-    }
+    }, [])
 
-    const updateMetrics = (metrics: Partial<Metrics>) => {
+    const updateMetrics = useCallback((metrics: Partial<Metrics>) => {
         console.log('updateMetrics called with:', metrics)
         setState(prev => {
             const newState = {
@@ -126,9 +126,9 @@ export function useDashboardState() {
             console.log('New metrics state:', newState.metrics)
             return newState
         })
-    }
+    }, [])
 
-    const updatePerformanceHistory = (memory: number, queue: number, delay: number) => {
+    const updatePerformanceHistory = useCallback((memory: number, queue: number, delay: number) => {
         const now = new Date()
         setState(prev => ({
             ...prev,
@@ -139,7 +139,7 @@ export function useDashboardState() {
                 processing_delay: [...prev.performance_history.processing_delay.slice(-999), delay]
             }
         }))
-    }
+    }, [])
 
     return {
         state,

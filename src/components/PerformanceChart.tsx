@@ -1,6 +1,7 @@
 'use client'
 
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { formatUTCChartTime } from '@/utils/datetime'
 
 interface PerformanceHistory {
     timestamps: Date[]
@@ -13,26 +14,33 @@ interface PerformanceChartProps {
     data: PerformanceHistory
 }
 
+interface TooltipPayload {
+    color: string
+    name: string
+    value: number
+}
+
+interface CustomTooltipProps {
+    active?: boolean
+    payload?: TooltipPayload[]
+    label?: string
+}
+
 export default function PerformanceChart({ data }: PerformanceChartProps) {
     // Transform data for Recharts
     const chartData = data.timestamps.map((timestamp, index) => ({
-        time: timestamp.toLocaleTimeString('en-US', {
-            hour12: false,
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit'
-        }),
+        time: formatUTCChartTime(timestamp),
         memory: data.memory[index] || 0,
         queue: data.queue[index] || 0,
         processing_delay: data.processing_delay[index] || 0
     }))
 
-    const CustomTooltip = ({ active, payload, label }: any) => {
+    const CustomTooltip = ({ active, payload, label }: CustomTooltipProps) => {
         if (active && payload && payload.length) {
             return (
                 <div className="bg-gray-800 border border-gray-700 rounded-lg p-3 shadow-lg">
                     <p className="text-gray-300 font-medium mb-2">{label}</p>
-                    {payload.map((entry: any, index: number) => (
+                    {payload.map((entry: TooltipPayload, index: number) => (
                         <p key={index} style={{ color: entry.color }} className="text-sm">
                             {entry.name}: {entry.value}
                             {entry.name === 'memory' ? ' MB' :

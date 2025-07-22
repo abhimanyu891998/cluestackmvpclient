@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Play, Square, Settings, Zap } from 'lucide-react'
+import { Play, Square, Settings } from 'lucide-react'
 
 const scenarios = [
   { value: 'stable-mode', label: 'Stable Mode', description: 'Normal Operation' },
@@ -19,7 +19,7 @@ export default function ScenarioControls() {
   useEffect(() => {
     const checkSimulationStatus = async () => {
       try {
-        const response = await fetch('http://localhost:8000/status/publisher')
+        const response = await fetch('http://127.0.0.1:8000/status/publisher')
         if (response.ok) {
           const status = await response.json()
           // Update simulation status based on server response
@@ -45,7 +45,7 @@ export default function ScenarioControls() {
     setIsLoading(true)
     try {
       console.log(`Attempting to switch to scenario: ${scenario}`)
-      const response = await fetch(`http://localhost:8000/config/profile/${scenario}`, {
+      const response = await fetch(`http://127.0.0.1:8000/config/profile/${scenario}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

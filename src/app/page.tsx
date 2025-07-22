@@ -1,13 +1,14 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Wifi, WifiOff, Activity, AlertTriangle, Settings, TrendingUp, Users, Database, Zap, Clock, MemoryStick } from 'lucide-react'
-import { useWebSocket } from '@/hooks/useWebSocket'
+import { Activity, AlertTriangle, TrendingUp, Users, Database, Zap, Clock } from 'lucide-react'
+import { useWebSocket } from '@/hooks/useWebSocketSingleton'
 import { useDashboardState } from '@/hooks/useDashboardState'
+import { formatUTCTime } from '@/utils/datetime'
 
 export default function TradingDashboard() {
   const dashboardState = useDashboardState()
-  const { isConnected, error } = useWebSocket(dashboardState)
+  const { isConnected } = useWebSocket(dashboardState)
   const { state } = dashboardState
   const [incidentCount, setIncidentCount] = useState(0)
   const alertsScrollRef = useRef<HTMLDivElement>(null)
@@ -65,11 +66,11 @@ export default function TradingDashboard() {
 
   const handleProfileSwitch = async (profileName: string) => {
     try {
-      await fetch(`http://localhost:8000/config/profile/${profileName}`, {
+      await fetch(`http://127.0.0.1:8000/config/profile/${profileName}`, {
         method: 'POST'
       })
-    } catch (error) {
-      console.error('Failed to switch profile:', error)
+    } catch (err) {
+      console.error('Failed to switch profile:', err)
     }
   }
 
@@ -196,7 +197,7 @@ export default function TradingDashboard() {
                   <div className="transition-all duration-300">
                     Seq: {state.orderbook_data.sequence_id}
                   </div>
-                  {state.orderbook_data.data_age_ms && (
+                  {state.orderbook_data.data_age_ms !== undefined && (
                     <div className={`font-medium transition-all duration-300 ${state.orderbook_data.data_age_ms > 1000 ? 'text-red-600' :
                         state.orderbook_data.data_age_ms > 500 ? 'text-yellow-600' : 'text-blue-600'
                       }`}>
@@ -208,14 +209,14 @@ export default function TradingDashboard() {
             </div>
 
             {/* Critical Staleness Alert */}
-            {state.orderbook_data.is_stale && state.orderbook_data.data_age_ms > 1000 && (
+            {state.orderbook_data.is_stale && (state.orderbook_data.data_age_ms ?? 0) > 1000 && (
               <div className="bg-red-50 border-l-4 border-red-400 p-4 m-4 rounded-r-lg">
                 <div className="flex items-center">
                   <AlertTriangle className="w-5 h-5 text-red-600 mr-2" />
                   <div>
                     <p className="font-medium text-red-800">CRITICAL: Data Staleness Detected</p>
                     <p className="text-sm text-red-600">
-                      Data received {state.orderbook_data.data_age_ms.toFixed(0)}ms ago - Processing lag detected
+                      Data received {(state.orderbook_data.data_age_ms ?? 0).toFixed(0)}ms ago - Processing lag detected
                     </p>
                     <p className="text-xs text-red-500 mt-1">
                       Data Age = Time from exchange receipt to client delivery
@@ -383,8 +384,8 @@ export default function TradingDashboard() {
                     <span className="text-sm text-black">Data Age</span>
                   </div>
                   <div className="text-right">
-                    <div className={`text-sm font-medium transition-all duration-200 ${state.orderbook_data.data_age_ms > 1000 ? 'text-red-600' :
-                        state.orderbook_data.data_age_ms > 500 ? 'text-yellow-600' : 'text-blue-600'
+                    <div className={`text-sm font-medium transition-all duration-200 ${(state.orderbook_data.data_age_ms ?? 0) > 1000 ? 'text-red-600' :
+                        (state.orderbook_data.data_age_ms ?? 0) > 500 ? 'text-yellow-600' : 'text-blue-600'
                       }`}>
                       {state.orderbook_data.data_age_ms ? state.orderbook_data.data_age_ms.toFixed(0) + 'ms' : '0ms'}
                     </div>
@@ -427,7 +428,7 @@ export default function TradingDashboard() {
                             <div className="text-sm font-medium text-red-900 truncate">{incident.type}</div>
                             <div className="text-xs text-red-700 mt-1 break-words">{incident.details}</div>
                             <div className="text-xs text-red-600 mt-1">
-                              {new Date(incident.timestamp).toLocaleTimeString()}
+                              {formatUTCTime(new Date(incident.timestamp))}
                             </div>
                           </div>
                         </div>

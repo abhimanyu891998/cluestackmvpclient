@@ -1,6 +1,7 @@
 'use client'
 
 import { FileText, AlertTriangle, Info, XCircle } from 'lucide-react'
+import { formatUTCTime } from '@/utils/datetime'
 
 interface LogEntry {
     timestamp: Date
@@ -38,12 +39,7 @@ export default function LogsPanel({ logs }: LogsPanelProps) {
     }
 
     const formatTime = (date: Date) => {
-        return date.toLocaleTimeString('en-US', {
-            hour12: false,
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit'
-        })
+        return formatUTCTime(date)
     }
 
     return (
