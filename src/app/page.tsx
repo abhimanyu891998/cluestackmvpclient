@@ -209,7 +209,7 @@ export default function TradingDashboard() {
             </div>
 
             {/* Critical Staleness Alert */}
-            {state.orderbook_data.is_stale && (state.orderbook_data.data_age_ms ?? 0) > 1000 && (
+            {state.orderbook_data.is_stale && (state.orderbook_data.data_age_ms ?? 0) > 300 && (
               <div className="bg-red-50 border-l-4 border-red-400 p-4 m-4 rounded-r-lg">
                 <div className="flex items-center">
                   <AlertTriangle className="w-5 h-5 text-red-600 mr-2" />
@@ -349,6 +349,19 @@ export default function TradingDashboard() {
                       {state.metrics.queue_size}
                     </div>
                     <div className="text-xs text-gray-500">messages</div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Activity className="w-4 h-4 text-gray-600" />
+                    <span className="text-sm text-black">Rate</span>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm font-medium text-black">
+                      {dashboardState.messageCount > 0 ? Math.round(dashboardState.getMessageRate()) : 0}
+                    </div>
+                    <div className="text-xs text-gray-500">msg/sec</div>
                   </div>
                 </div>
 

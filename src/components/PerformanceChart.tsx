@@ -8,6 +8,7 @@ interface PerformanceHistory {
     memory: number[]
     queue: number[]
     processing_delay: number[]
+    message_rate: number[]
 }
 
 interface PerformanceChartProps {
@@ -32,7 +33,8 @@ export default function PerformanceChart({ data }: PerformanceChartProps) {
         time: formatUTCChartTime(timestamp),
         memory: data.memory[index] || 0,
         queue: data.queue[index] || 0,
-        processing_delay: data.processing_delay[index] || 0
+        processing_delay: data.processing_delay[index] || 0,
+        message_rate: data.message_rate[index] || 0
     }))
 
     const CustomTooltip = ({ active, payload, label }: CustomTooltipProps) => {

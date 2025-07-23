@@ -78,7 +78,7 @@ export function useWebSocket(dashboardState: ReturnType<typeof useDashboardState
               const isStale = (message.data.is_stale as boolean) || false
               
               // Log staleness warnings
-              if (isStale && dataAge > 1000) {
+              if (isStale && dataAge > 300) {
                 console.warn('CRITICAL: Data staleness detected', {
                   dataAge: dataAge,
                   sequenceId: message.data.sequence_id as number,

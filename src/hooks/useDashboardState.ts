@@ -44,6 +44,7 @@ interface PerformanceHistory {
     memory: number[]
     queue: number[]
     processing_delay: number[]
+    message_rate: number[]
 }
 
 interface DashboardState {
@@ -73,12 +74,15 @@ const initialState: DashboardState = {
         timestamps: [],
         memory: [],
         queue: [],
-        processing_delay: []
+        processing_delay: [],
+        message_rate: []
     }
 }
 
 export function useDashboardState() {
     const [state, setState] = useState<DashboardState>(initialState)
+    const [messageCount, setMessageCount] = useState(0)
+    const [messageTimestamps, setMessageTimestamps] = useState<number[]>([])
 
     const updateState = useCallback((updates: Partial<DashboardState>) => {
         setState(prev => ({ ...prev, ...updates }))
@@ -106,6 +110,16 @@ export function useDashboardState() {
 
     const updateOrderbook = useCallback((orderbookData: Partial<OrderbookData>) => {
         console.log('🔄 updateOrderbook called with:', orderbookData)
+        
+        // Track message rate with timestamps
+        const currentTime = Date.now()
+        setMessageCount(prev => prev + 1)
+        setMessageTimestamps(prev => {
+            // Keep only timestamps from last 10 seconds
+            const filtered = prev.filter(timestamp => currentTime - timestamp < 10000)
+            return [...filtered, currentTime]
+        })
+        
         setState(prev => {
             const newState = {
                 ...prev,
@@ -128,7 +142,7 @@ export function useDashboardState() {
         })
     }, [])
 
-    const updatePerformanceHistory = useCallback((memory: number, queue: number, delay: number) => {
+    const updatePerformanceHistory = useCallback((memory: number, queue: number, delay: number, messageRate?: number) => {
         const now = new Date()
         setState(prev => ({
             ...prev,
@@ -136,10 +150,18 @@ export function useDashboardState() {
                 timestamps: [...prev.performance_history.timestamps.slice(-999), now],
                 memory: [...prev.performance_history.memory.slice(-999), memory],
                 queue: [...prev.performance_history.queue.slice(-999), queue],
-                processing_delay: [...prev.performance_history.processing_delay.slice(-999), delay]
+                processing_delay: [...prev.performance_history.processing_delay.slice(-999), delay],
+                message_rate: [...prev.performance_history.message_rate.slice(-999), messageRate || 0]
             }
         }))
     }, [])
+
+    const getMessageRate = useCallback(() => {
+        // Calculate messages per second based on actual message timestamps
+        const now = Date.now()
+        const recentMessages = messageTimestamps.filter(timestamp => now - timestamp < 5000) // last 5 seconds
+        return recentMessages.length / 5 // messages per second
+    }, [messageTimestamps])
 
     return {
         state,
@@ -148,6 +170,8 @@ export function useDashboardState() {
         addIncident,
         updateOrderbook,
         updateMetrics,
-        updatePerformanceHistory
+        updatePerformanceHistory,
+        getMessageRate,
+        messageCount
     }
 } 
