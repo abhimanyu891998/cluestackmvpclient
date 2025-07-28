@@ -217,7 +217,8 @@ export function useWebSocket(dashboardState: ReturnType<typeof useDashboardState
           server_status: (message.data.server_status as string) || 'unknown',
           active_clients: (message.data.active_clients as number) || 0,
           current_scenario: (message.data.current_scenario as string) || 'unknown',
-          uptime_seconds: (message.data.uptime_seconds as number) || 0
+          uptime_seconds: (message.data.uptime_seconds as number) || 0,
+          total_events_received: (message.data.total_messages_received as number) || 0
         })
 
         dashboardState.updatePerformanceHistory(
@@ -332,3 +333,6 @@ export function useWebSocket(dashboardState: ReturnType<typeof useDashboardState
 
   return { isConnected, error }
 }
+
+// Export the WebSocket singleton class for direct access
+export { WebSocketSingleton }

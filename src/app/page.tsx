@@ -2,18 +2,27 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Activity, AlertTriangle, TrendingUp, Users, Database, Zap, Clock } from 'lucide-react'
-import { useWebSocket } from '@/hooks/useWebSocketSingleton'
+import { useWebSocket, WebSocketSingleton } from '@/hooks/useWebSocketSingleton'
 import { useDashboardState } from '@/hooks/useDashboardState'
 import { formatUTCTime } from '@/utils/datetime'
+import EventsRateChart from '@/components/EventsRateChart'
 
 export default function TradingDashboard() {
   const dashboardState = useDashboardState()
-  const { isConnected } = useWebSocket(dashboardState)
+  const webSocketHook = useWebSocket(dashboardState)
+  const { isConnected } = webSocketHook
   const { state } = dashboardState
   const [incidentCount, setIncidentCount] = useState(0)
   const alertsScrollRef = useRef<HTMLDivElement>(null)
   const [lastSequenceId, setLastSequenceId] = useState(0)
   const [isUpdating, setIsUpdating] = useState(false)
+  const [stalenessAlertCount, setStalenessAlertCount] = useState(0)
+  const [isDisconnectedDueToStaleness, setIsDisconnectedDueToStaleness] = useState(false)
+  const [stalenessDisconnectInfo, setStalenessDisconnectInfo] = useState<{
+    dataAge: number;
+    timestamp: string;
+  } | null>(null)
+  const stalenessTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     setIncidentCount(state.incidents.length)
@@ -39,6 +48,53 @@ export default function TradingDashboard() {
     }
   }, [state.orderbook_data.sequence_id, lastSequenceId])
 
+  // Track staleness alerts and disconnect after 3 occurrences
+  useEffect(() => {
+    const isCurrentlyStale = state.orderbook_data.is_stale && (state.orderbook_data.data_age_ms ?? 0) > 300
+    
+    if (isCurrentlyStale && !isDisconnectedDueToStaleness) {
+      // Clear any existing timeout
+      if (stalenessTimeoutRef.current) {
+        clearTimeout(stalenessTimeoutRef.current)
+      }
+      
+      // Set a timeout to increment staleness count if condition persists
+      stalenessTimeoutRef.current = setTimeout(() => {
+        setStalenessAlertCount(prev => {
+          const newCount = prev + 1
+          console.log(`🚨 Staleness alert ${newCount}/1 - Data age: ${state.orderbook_data.data_age_ms}ms`)
+          
+          if (newCount >= 1) {
+            console.log('❌ 1 staleness alert reached - Disconnecting from trading')
+            // Small delay to allow UI to show the alert before disconnecting
+            setTimeout(() => {
+              setStalenessDisconnectInfo({
+                dataAge: state.orderbook_data.data_age_ms ?? 0,
+                timestamp: new Date().toISOString()
+              })
+              setIsDisconnectedDueToStaleness(true)
+              // Force disconnect the WebSocket
+              const wsInstance = WebSocketSingleton.getInstance()
+              wsInstance.disconnect()
+            }, 100)
+          }
+          
+          return newCount
+        })
+      }, 1000) // Wait 1 second to confirm staleness persists
+    } else if (!isCurrentlyStale && stalenessTimeoutRef.current) {
+      // Clear timeout if staleness condition resolves
+      clearTimeout(stalenessTimeoutRef.current)
+      stalenessTimeoutRef.current = null
+    }
+    
+    return () => {
+      if (stalenessTimeoutRef.current) {
+        clearTimeout(stalenessTimeoutRef.current)
+      }
+    }
+  }, [state.orderbook_data.is_stale, state.orderbook_data.data_age_ms, isDisconnectedDueToStaleness])
+
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -53,9 +109,9 @@ export default function TradingDashboard() {
   }
 
   const getDataFreshnessColor = (dataAge: number = 0, isStale: boolean = false) => {
-    if (isStale && dataAge > 1000) return 'text-red-600 bg-red-50'
-    if (isStale) return 'text-yellow-600 bg-yellow-50'
-    return 'text-blue-600 bg-blue-50'
+    if (isStale && dataAge > 1000) return 'text-red-500 bg-red-50'
+    if (isStale) return 'text-yellow-500 bg-yellow-50'
+    return 'text-blue-500 bg-blue-50'
   }
 
   const getDataFreshnessText = (dataAge: number = 0, isStale: boolean = false) => {
@@ -90,20 +146,6 @@ export default function TradingDashboard() {
           color: 'text-yellow-600 bg-yellow-50',
           description: 'High frequency spikes'
         }
-      case 'gradual-spike':
-        return {
-          emoji: '🟠',
-          name: 'Gradual Spike',
-          color: 'text-orange-600 bg-orange-50',
-          description: 'Progressive load increase'
-        }
-      case 'extreme-spike':
-        return {
-          emoji: '🔴',
-          name: 'Extreme Spike',
-          color: 'text-red-600 bg-red-50',
-          description: 'Maximum stress - High latency'
-        }
       default:
         return {
           emoji: '⚪',
@@ -115,7 +157,7 @@ export default function TradingDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="bg-white min-h-screen">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10 shadow-sm">
         <div className="px-6 py-4">
@@ -126,8 +168,8 @@ export default function TradingDashboard() {
                   <TrendingUp className="w-4 h-4 text-white" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-semibold text-black">BTC/USDT</h1>
-                  <p className="text-sm text-gray-600">Market Data Monitor</p>
+                  <h1 className="text-xl font-semibold text-black">Market Data Monitor</h1>
+                  <p className="text-sm text-gray-600">BTC/USDT</p>
                 </div>
               </div>
             </div>
@@ -137,9 +179,9 @@ export default function TradingDashboard() {
               <div className="flex items-center space-x-2">
                 {isConnected ? (
                   <div className="flex items-center space-x-2">
-                    <div className={`w-2 h-2 bg-blue-500 rounded-full transition-all duration-300 ${isUpdating ? 'animate-subtle-pulse' : 'animate-pulse'
+                    <div className={`w-2 h-2 bg-emerald-500 rounded-full transition-all duration-300 ${isUpdating ? 'animate-subtle-pulse' : 'animate-pulse'
                       }`}></div>
-                    <span className="text-sm text-blue-600 font-medium">LIVE</span>
+                    <span className="text-sm text-emerald-600 font-medium">LIVE</span>
                   </div>
                 ) : (
                   <div className="flex items-center space-x-2">
@@ -156,12 +198,10 @@ export default function TradingDashboard() {
                   <select
                     onChange={(e) => handleProfileSwitch(e.target.value)}
                     value={state.metrics.current_scenario || "stable-mode"}
-                    className="text-sm font-medium text-black border border-gray-300 rounded-lg px-3 py-2 bg-white shadow-sm hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 cursor-pointer min-w-[140px]"
+                    className="text-sm font-medium text-black border border-gray-300 rounded-md px-2 py-1.5 bg-white shadow-sm hover:border-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500/30 focus:border-blue-500 transition-all duration-200 cursor-pointer w-auto"
                   >
-                    <option value="stable-mode" className="py-2 text-black bg-white">🟢 Stable Mode</option>
-                    <option value="burst-mode" className="py-2 text-black bg-white">🟡 Burst Mode</option>
-                    <option value="gradual-spike" className="py-2 text-black bg-white">🟠 Gradual Spike</option>
-                    <option value="extreme-spike" className="py-2 text-black bg-white">🔴 Extreme Spike</option>
+                    <option value="stable-mode" className="py-2 text-black bg-white">Stable Mode</option>
+                    <option value="burst-mode" className="py-2 text-black bg-white">Burst Mode</option>
                   </select>
                   <div className={`px-2 py-1 rounded-md text-xs font-medium ${getModeDisplayInfo(state.metrics.current_scenario || "stable-mode").color}`}>
                     {getModeDisplayInfo(state.metrics.current_scenario || "stable-mode").description}
@@ -173,13 +213,143 @@ export default function TradingDashboard() {
         </div>
       </header>
 
+      {/* Trading Stopped Notification */}
+      {isDisconnectedDueToStaleness && stalenessDisconnectInfo && (
+        <div className="bg-red-50 border-l-4 border-red-400 mx-6 mt-4 mb-2 p-4 rounded-r-lg">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <AlertTriangle className="w-5 h-5 text-red-600 mr-3" />
+              <div>
+                <p className="font-medium text-red-800">TRADING STOPPED</p>
+                <p className="text-sm text-red-600 mt-1">
+                  Stale data detected: {stalenessDisconnectInfo.dataAge}ms age • 
+                  Alert received: {formatUTCTime(new Date(stalenessDisconnectInfo.timestamp))}
+                </p>
+                <p className="text-xs text-red-500 mt-1">
+                  Connection terminated for safety after 1 staleness alert
+                </p>
+              </div>
+            </div>
+            <button className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+              Resolve with Trackdown
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Critical Staleness Alert */}
+      {state.orderbook_data.is_stale && (state.orderbook_data.data_age_ms ?? 0) > 300 && !isDisconnectedDueToStaleness && (
+        <div className="bg-red-50 border-l-4 border-red-400 mx-6 mt-4 mb-2 p-4 rounded-r-lg">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <AlertTriangle className="w-5 h-5 text-red-600 mr-3" />
+              <div>
+                <p className="font-medium text-red-800">CRITICAL: Data Staleness Detected ({stalenessAlertCount}/1)</p>
+                <p className="text-sm text-red-600 mt-1">
+                  Data received {(state.orderbook_data.data_age_ms ?? 0).toFixed(0)}ms ago - Processing lag detected
+                </p>
+                <p className="text-xs text-red-500 mt-1">
+                  Data Age = Time from exchange receipt to client delivery
+                </p>
+              </div>
+            </div>
+            {stalenessAlertCount >= 1 && (
+              <div className="text-red-800 text-sm font-bold animate-pulse">
+                ⚠️ TRADING WILL STOP
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Main Content */}
-      <div className="flex h-[calc(100vh-80px)] overflow-hidden">
-        {/* Orderbook Section */}
-        <div className="flex-1 p-6 overflow-hidden">
-          <div className="bg-white border border-gray-200 rounded-xl shadow-sm h-full overflow-hidden">
+      <div className="p-4 flex flex-col">
+        {/* System Health Bar */}
+        <div className="bg-white border border-gray-200 rounded-xl shadow-sm mb-4 flex-shrink-0">
+          <div className="p-4 border-b border-gray-200">
+            <h3 className="text-lg font-semibold text-black">System Health</h3>
+          </div>
+          <div className="p-4">
+            <div className="grid grid-cols-6 gap-6">
+              <div className="flex items-center space-x-3">
+                <Database className="w-5 h-5 text-gray-600" />
+                <div>
+                  <div className="text-sm font-medium text-black">
+                    {state.metrics.memory_usage_mb.toFixed(1)} MB
+                  </div>
+                  <div className="text-xs text-gray-500">Memory</div>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-3">
+                <Activity className="w-5 h-5 text-gray-600" />
+                <div>
+                  <div className="text-sm font-medium text-black">
+                    {dashboardState.messageCount > 0 ? Math.round(dashboardState.getMessageRate()) : 0}
+                  </div>
+                  <div className="text-xs text-gray-500">Rate (msg/sec)</div>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-3">
+                <Zap className="w-5 h-5 text-gray-600" />
+                <div>
+                  <div className="text-sm font-medium text-black">
+                    {state.metrics.processing_delay_ms}ms
+                  </div>
+                  <div className="text-xs text-gray-500">Processing Delay</div>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-3">
+                <Users className="w-5 h-5 text-gray-600" />
+                <div>
+                  <div className="text-sm font-medium text-black">
+                    {state.metrics.active_clients}
+                  </div>
+                  <div className="text-xs text-gray-500">Clients</div>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-3">
+                <Activity className={`w-5 h-5 text-gray-600 transition-all duration-200 ${isUpdating ? 'animate-subtle-pulse' : ''}`} />
+                <div>
+                  <div className={`text-sm font-medium transition-all duration-200 ${(state.orderbook_data.data_age_ms ?? 0) > 1000 ? 'text-red-500' :
+                      (state.orderbook_data.data_age_ms ?? 0) > 500 ? 'text-yellow-500' : 'text-emerald-500'
+                    }`}>
+                    {state.orderbook_data.data_age_ms ? state.orderbook_data.data_age_ms.toFixed(0) + 'ms' : '0ms'}
+                  </div>
+                  <div className="text-xs text-gray-500">Data Age</div>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-3">
+                <div className={`w-3 h-3 rounded-full ${state.metrics.server_status === 'healthy' ? 'bg-emerald-500' : 'bg-yellow-500'}`}></div>
+                <div>
+                  <div className="text-sm font-medium text-black">
+                    {state.metrics.server_status === 'healthy' ? 'Healthy' : 'Degraded'}
+                  </div>
+                  <div className="text-xs text-gray-500">Server Status</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Main Grid - Orderbook Left, Events Chart Right */}
+        <div 
+          className="flex gap-6 w-full" 
+          style={{ 
+            height: `calc(100vh - ${280 + 
+              (isDisconnectedDueToStaleness ? 72 : 0) + 
+              (state.orderbook_data.is_stale && (state.orderbook_data.data_age_ms ?? 0) > 300 && !isDisconnectedDueToStaleness ? 72 : 0)
+            }px)` 
+          }}
+        >
+          {/* Orderbook Section - Left */}
+          <div className="flex-1 bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden flex flex-col h-full">
             {/* Orderbook Header */}
-            <div className="border-b border-gray-200 p-4 bg-white">
+            <div className="border-b border-gray-200 p-4 bg-white flex-shrink-0">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
                   <h2 className="text-lg font-semibold text-black">Order Book</h2>
@@ -198,8 +368,8 @@ export default function TradingDashboard() {
                     Seq: {state.orderbook_data.sequence_id}
                   </div>
                   {state.orderbook_data.data_age_ms !== undefined && (
-                    <div className={`font-medium transition-all duration-300 ${state.orderbook_data.data_age_ms > 1000 ? 'text-red-600' :
-                        state.orderbook_data.data_age_ms > 500 ? 'text-yellow-600' : 'text-blue-600'
+                    <div className={`font-medium transition-all duration-300 ${state.orderbook_data.data_age_ms > 1000 ? 'text-red-500' :
+                        state.orderbook_data.data_age_ms > 500 ? 'text-yellow-500' : 'text-emerald-500'
                       }`}>
                       Age: {state.orderbook_data.data_age_ms.toFixed(0)}ms
                     </div>
@@ -208,34 +378,17 @@ export default function TradingDashboard() {
               </div>
             </div>
 
-            {/* Critical Staleness Alert */}
-            {state.orderbook_data.is_stale && (state.orderbook_data.data_age_ms ?? 0) > 300 && (
-              <div className="bg-red-50 border-l-4 border-red-400 p-4 m-4 rounded-r-lg">
-                <div className="flex items-center">
-                  <AlertTriangle className="w-5 h-5 text-red-600 mr-2" />
-                  <div>
-                    <p className="font-medium text-red-800">CRITICAL: Data Staleness Detected</p>
-                    <p className="text-sm text-red-600">
-                      Data received {(state.orderbook_data.data_age_ms ?? 0).toFixed(0)}ms ago - Processing lag detected
-                    </p>
-                    <p className="text-xs text-red-500 mt-1">
-                      Data Age = Time from exchange receipt to client delivery
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* Orderbook Content */}
             <div className="flex-1 p-4 overflow-hidden">
               <div className="grid grid-cols-2 gap-6 h-full">
                 {/* Bids (Buy Orders) - Left Side */}
-                <div className="space-y-1 overflow-hidden">
+                <div className="space-y-1 overflow-hidden flex flex-col">
                   <div className="flex justify-between text-xs text-gray-600 font-medium border-b border-gray-200 pb-2">
                     <span>Price (USD)</span>
                     <span>Size (BTC)</span>
                   </div>
-                  <div className="space-y-0.5 max-h-[calc(100vh-280px)] overflow-y-auto">
+                  <div className="space-y-0.5 flex-1">
                     {state.orderbook_data.bids.slice(0, 15).map((bid, index) => {
                       const btcSize = parseFloat(bid[1])
                       const maxSize = Math.max(...state.orderbook_data.bids.slice(0, 15).map(b => parseFloat(b[1])))
@@ -244,15 +397,15 @@ export default function TradingDashboard() {
                       return (
                         <div
                           key={index}
-                          className={`relative flex justify-between text-sm py-1.5 px-2 rounded transition-all duration-200 hover:bg-green-50 ${index === 0 && isUpdating ? 'border-l-2 border-green-400 animate-subtle-slide-in' : ''
+                          className={`relative flex justify-between text-sm py-1.5 px-2 rounded transition-all duration-200 hover:bg-emerald-50 ${index === 0 && isUpdating ? 'border-l-2 border-emerald-400 animate-subtle-slide-in' : ''
                             }`}
                           style={{
                             background: index === 0 && isUpdating 
-                              ? `linear-gradient(to right, rgba(34, 197, 94, 0.15) ${widthPercent}%, transparent ${widthPercent}%)`
-                              : `linear-gradient(to right, rgba(34, 197, 94, 0.08) ${widthPercent}%, transparent ${widthPercent}%)`
+                              ? `linear-gradient(to right, rgba(16, 185, 129, 0.15) ${widthPercent}%, transparent ${widthPercent}%)`
+                              : `linear-gradient(to right, rgba(16, 185, 129, 0.08) ${widthPercent}%, transparent ${widthPercent}%)`
                           }}
                         >
-                          <span className={`text-green-600 font-mono font-medium transition-all duration-200 relative z-10 ${index === 0 && isUpdating ? 'text-green-700' : ''
+                          <span className={`text-emerald-500 font-mono font-medium transition-all duration-200 relative z-10 ${index === 0 && isUpdating ? 'text-emerald-600' : ''
                             }`}>
                             {formatPrice(parseFloat(bid[0]))}
                           </span>
@@ -267,12 +420,12 @@ export default function TradingDashboard() {
                 </div>
 
                 {/* Asks (Sell Orders) - Right Side */}
-                <div className="space-y-1 overflow-hidden">
+                <div className="space-y-1 overflow-hidden flex flex-col">
                   <div className="flex justify-between text-xs text-gray-600 font-medium border-b border-gray-200 pb-2">
                     <span>Price (USD)</span>
                     <span>Size (BTC)</span>
                   </div>
-                  <div className="space-y-0.5 max-h-[calc(100vh-280px)] overflow-y-auto">
+                  <div className="space-y-0.5 flex-1">
                     {state.orderbook_data.asks.slice(0, 15).reverse().map((ask, index) => {
                       const btcSize = parseFloat(ask[1])
                       const maxSize = Math.max(...state.orderbook_data.asks.slice(0, 15).map(a => parseFloat(a[1])))
@@ -289,7 +442,7 @@ export default function TradingDashboard() {
                               : `linear-gradient(to right, rgba(239, 68, 68, 0.08) ${widthPercent}%, transparent ${widthPercent}%)`
                           }}
                         >
-                          <span className={`text-red-600 font-mono font-medium transition-all duration-200 relative z-10 ${index === 0 && isUpdating ? 'text-red-700' : ''
+                          <span className={`text-red-500 font-mono font-medium transition-all duration-200 relative z-10 ${index === 0 && isUpdating ? 'text-red-600' : ''
                             }`}>
                             {formatPrice(parseFloat(ask[0]))}
                           </span>
@@ -315,175 +468,18 @@ export default function TradingDashboard() {
               )}
             </div>
           </div>
-        </div>
 
-        {/* System Metrics Sidebar */}
-        <div className="w-80 p-6 border-l border-gray-200 flex-shrink-0 overflow-y-auto">
-          <div className="space-y-6">
-            {/* System Health */}
-            <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-              <h3 className="text-sm font-medium text-black mb-3">System Health</h3>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Database className="w-4 h-4 text-gray-600" />
-                    <span className="text-sm text-black">Memory</span>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-medium text-black">
-                      {state.metrics.memory_usage_mb.toFixed(1)} MB
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {((state.metrics.memory_usage_mb / 512) * 100).toFixed(1)}%
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Clock className="w-4 h-4 text-gray-600" />
-                    <span className="text-sm text-black">Queue</span>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-medium text-black">
-                      {state.metrics.queue_size}
-                    </div>
-                    <div className="text-xs text-gray-500">messages</div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Activity className="w-4 h-4 text-gray-600" />
-                    <span className="text-sm text-black">Rate</span>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-medium text-black">
-                      {dashboardState.messageCount > 0 ? Math.round(dashboardState.getMessageRate()) : 0}
-                    </div>
-                    <div className="text-xs text-gray-500">msg/sec</div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Zap className="w-4 h-4 text-gray-600" />
-                    <span className="text-sm text-black">Delay</span>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-medium text-black">
-                      {state.metrics.processing_delay_ms}ms
-                    </div>
-                    <div className="text-xs text-gray-500">processing</div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Users className="w-4 h-4 text-gray-600" />
-                    <span className="text-sm text-black">Clients</span>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-medium text-black">
-                      {state.metrics.active_clients}
-                    </div>
-                    <div className="text-xs text-gray-500">connected</div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Activity className={`w-4 h-4 text-gray-600 transition-all duration-200 ${isUpdating ? 'animate-subtle-pulse' : ''}`} />
-                    <span className="text-sm text-black">Data Age</span>
-                  </div>
-                  <div className="text-right">
-                    <div className={`text-sm font-medium transition-all duration-200 ${(state.orderbook_data.data_age_ms ?? 0) > 1000 ? 'text-red-600' :
-                        (state.orderbook_data.data_age_ms ?? 0) > 500 ? 'text-yellow-600' : 'text-blue-600'
-                      }`}>
-                      {state.orderbook_data.data_age_ms ? state.orderbook_data.data_age_ms.toFixed(0) + 'ms' : '0ms'}
-                    </div>
-                    <div className="text-xs text-gray-500">staleness</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Incidents */}
-            <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm h-80">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-medium text-black">System Alerts</h3>
-                {incidentCount > 0 && (
-                  <span className="bg-red-100 text-red-800 text-xs font-medium px-2 py-1 rounded">
-                    {incidentCount}
-                  </span>
-                )}
-              </div>
-
-              <div ref={alertsScrollRef} className="h-64 overflow-y-auto overflow-x-hidden scroll-smooth">
-                {state.incidents.length === 0 ? (
-                  <div className="flex items-center justify-center h-full text-gray-500">
-                    <div className="text-center">
-                      <div className="text-sm">No incidents detected</div>
-                      <div className="text-xs text-gray-400">System running normally</div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-2 pr-2">
-                    {state.incidents.slice(-10).reverse().map((incident, index) => (
-                      <div
-                        key={`${incident.timestamp}-${index}`}
-                        className={`border border-red-200 rounded-lg p-3 bg-red-50 flex-shrink-0 transition-all duration-300 ${index === 0 ? 'animate-subtle-slide-in' : ''
-                          }`}
-                      >
-                        <div className="flex items-start space-x-2">
-                          <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium text-red-900 truncate">{incident.type}</div>
-                            <div className="text-xs text-red-700 mt-1 break-words">{incident.details}</div>
-                            <div className="text-xs text-red-600 mt-1">
-                              {formatUTCTime(new Date(incident.timestamp))}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Current Status */}
-            <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-              <h3 className="text-sm font-medium text-black mb-3">Current Status</h3>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-black">Server</span>
-                  <span className={`text-sm font-medium ${state.metrics.server_status === 'healthy' ? 'text-blue-600' : 'text-yellow-600'}`}>
-                    {state.metrics.server_status === 'healthy' ? 'Healthy' : 'Degraded'}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-black">Profile</span>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-sm">
-                      {getModeDisplayInfo(state.metrics.current_scenario || "stable-mode").emoji}
-                    </span>
-                    <span className="text-sm font-medium text-black">
-                      {getModeDisplayInfo(state.metrics.current_scenario || "stable-mode").name}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-black">Uptime</span>
-                  <span className="text-sm font-medium text-black">
-                    {Math.floor(state.metrics.uptime_seconds / 60)}m {Math.floor(state.metrics.uptime_seconds % 60)}s
-                  </span>
-                </div>
-              </div>
-            </div>
+          {/* Events Rate Chart - Right */}
+          <div className="flex-1 h-full">
+            <EventsRateChart 
+              totalEventsReceived={state.metrics.total_events_received || 0}
+              className="h-full"
+              isConnected={isConnected}
+            />
           </div>
         </div>
       </div>
+
     </div>
   )
 }

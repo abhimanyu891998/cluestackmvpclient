@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SRE Dashboard - MarketDataPublisher",
+  title: "Market Data Monitor - MarketDataPublisher",
   description: "AI SRE Training Dashboard for Crypto Trading Incident Simulation",
 };
 

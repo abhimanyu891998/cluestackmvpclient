@@ -5,9 +5,7 @@ import { Play, Square, Settings } from 'lucide-react'
 
 const scenarios = [
   { value: 'stable-mode', label: 'Stable Mode', description: 'Normal Operation' },
-  { value: 'burst-mode', label: 'Burst Mode', description: 'High-Frequency Spike' },
-  { value: 'gradual-spike', label: 'Gradual Spike', description: 'Progressive Degradation' },
-  { value: 'extreme-spike', label: 'Extreme Spike', description: 'Maximum Stress' }
+  { value: 'burst-mode', label: 'Burst Mode', description: 'High-Frequency Spike' }
 ]
 
 export default function ScenarioControls() {

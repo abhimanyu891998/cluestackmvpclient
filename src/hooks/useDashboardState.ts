@@ -23,6 +23,7 @@ interface Metrics {
     active_clients: number
     current_scenario: string
     uptime_seconds: number
+    total_events_received?: number
 }
 
 interface Incident {
