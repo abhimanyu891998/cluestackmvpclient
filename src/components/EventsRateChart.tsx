@@ -31,6 +31,7 @@ interface CustomTooltipProps {
 
 export default function EventsRateChart({ totalEventsReceived, className = '', isConnected = true }: EventsRateChartProps) {
   const [rateHistory, setRateHistory] = useState<EventsRateData[]>([])
+  const [maxRateReached, setMaxRateReached] = useState(0) // Track highest rate reached
   const lastEventsCount = useRef(0)
   const lastUpdateTime = useRef(Date.now())
   const currentEventsRef = useRef(totalEventsReceived)
@@ -81,11 +82,15 @@ export default function EventsRateChart({ totalEventsReceived, className = '', i
         calculatedRate: rate.toFixed(2)
       })
       
+      const roundedRate = Math.round(rate)
       const newDataPoint: EventsRateData = {
         timestamp: new Date(),
-        rate: Math.round(rate), // Round to nearest whole number for cleaner display
+        rate: roundedRate, // Round to nearest whole number for cleaner display
         cumulative: currentTotal
       }
+      
+      // Update max rate reached if this rate is higher
+      setMaxRateReached(prev => Math.max(prev, roundedRate))
       
       setRateHistory(prev => {
         // Keep last 60 data points (1 minute of data)
@@ -101,6 +106,14 @@ export default function EventsRateChart({ totalEventsReceived, className = '', i
     
     return () => clearInterval(interval)
   }, [isConnected]) // Include isConnected in dependency array
+  
+  // Reset max rate when connection status changes to connected
+  useEffect(() => {
+    if (isConnected) {
+      setMaxRateReached(0) // Reset max rate on reconnection
+      console.log('🔄 Reset max rate reached on reconnection')
+    }
+  }, [isConnected])
   
   // Transform data for Recharts
   const chartData = rateHistory.map((item, index) => ({
@@ -146,8 +159,9 @@ export default function EventsRateChart({ totalEventsReceived, className = '', i
     // If disconnected, always show red
     if (!isConnected) return '#EF4444' // red
     
-    // Connected state colors
-    if (rate < 10) return '#10B981' // green
+    // Connected state colors - once yellow is reached, stay yellow
+    if (maxRateReached >= 10) return '#F59E0B' // yellow (once reached 10+, stay yellow)
+    if (rate < 10) return '#10B981' // green (only if never reached 10+)
     return '#F59E0B' // yellow (for rate >= 10)
   }
   
@@ -164,7 +178,7 @@ export default function EventsRateChart({ totalEventsReceived, className = '', i
             </div>
           </div>
           <div className="flex items-center space-x-6 text-sm text-gray-600">
-            <div className={`font-medium transition-all duration-300 ${!isConnected ? 'text-red-600' : currentRate >= 10 ? 'text-yellow-600' : 'text-blue-600'}`}>
+            <div className={`font-medium transition-all duration-300 ${!isConnected ? 'text-red-600' : maxRateReached >= 10 ? 'text-yellow-600' : 'text-blue-600'}`}>
               {currentRate}/sec
             </div>
           </div>
@@ -188,13 +202,15 @@ export default function EventsRateChart({ totalEventsReceived, className = '', i
               <CartesianGrid 
                 strokeDasharray="3 3" 
                 stroke="#E5E7EB"
-                horizontalCoordinatesGenerator={(lineProps) => {
+                horizontalCoordinatesGenerator={(props) => {
                   // Add more horizontal grid lines for better readability
                   const max = yAxisDomain[1]
                   const step = max <= 20 ? 5 : max <= 100 ? 20 : max <= 600 ? 100 : 200
                   const lines = []
+                  const { height, offset } = props
+                  const chartHeight = height - offset.top - offset.bottom
                   for (let i = 0; i <= max; i += step) {
-                    lines.push(lineProps.y1 - (i / max) * (lineProps.y1 - lineProps.y2))
+                    lines.push(offset.top + chartHeight - (i / max) * chartHeight)
                   }
                   return lines
                 }}

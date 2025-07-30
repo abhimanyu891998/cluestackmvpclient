@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useDashboardState } from './useDashboardState'
+import { buildWebSocketUrl } from '@/config/api'
 
 interface WebSocketMessage {
   type: string
@@ -110,7 +111,7 @@ class WebSocketSingleton {
     this.cleanup()
 
     try {
-      this.ws = new WebSocket('ws://127.0.0.1:8000/ws')
+      this.ws = new WebSocket(buildWebSocketUrl())
 
       this.ws.onopen = () => {
         console.log('✅ WebSocket connected successfully')
@@ -283,7 +284,7 @@ export function useWebSocket(dashboardState: ReturnType<typeof useDashboardState
       default:
         console.log('❓ Unknown message type:', message.type)
     }
-  }, [dashboardState.addLog, dashboardState.updateMetrics, dashboardState.updatePerformanceHistory, dashboardState.updateOrderbook, dashboardState.addIncident])
+  }, [dashboardState])
 
   const handleConnectionChange = useCallback((connected: boolean) => {
     setIsConnected(connected)
@@ -293,12 +294,12 @@ export function useWebSocket(dashboardState: ReturnType<typeof useDashboardState
     } else {
       dashboardState.addLog('WARNING', 'WebSocket connection lost')
     }
-  }, [dashboardState.addLog])
+  }, [dashboardState])
 
   const handleError = useCallback((errorMessage: string) => {
     setError(errorMessage)
     dashboardState.addLog('ERROR', errorMessage)
-  }, [dashboardState.addLog])
+  }, [dashboardState])
 
   // Create stable callback references using refs to avoid re-subscriptions
   const connectionChangeRef = useRef(handleConnectionChange)
@@ -312,7 +313,9 @@ export function useWebSocket(dashboardState: ReturnType<typeof useDashboardState
     connectionChangeRef.current = handleConnectionChange
     messageRef.current = handleMessage
     errorRef.current = handleError
-    
+  }, [handleConnectionChange, handleError, handleMessage])
+
+  useEffect(() => {
     // Subscribe to the singleton WebSocket with stable wrapper functions
     const unsubscribe = wsInstance.current.subscribe(
       (connected) => connectionChangeRef.current(connected),
@@ -329,7 +332,7 @@ export function useWebSocket(dashboardState: ReturnType<typeof useDashboardState
       console.log('🔥 Unsubscribing from WebSocket singleton')
       unsubscribe()
     }
-  }, []) // Empty deps array since we use refs for callbacks
+  }, [])
 
   return { isConnected, error }
 }

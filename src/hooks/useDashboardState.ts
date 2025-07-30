@@ -164,6 +164,13 @@ export function useDashboardState() {
         return recentMessages.length / 5 // messages per second
     }, [messageTimestamps])
 
+    const resetToInitialState = useCallback(() => {
+        console.log('🔄 Resetting dashboard to initial state')
+        setState(initialState)
+        setMessageCount(0)
+        setMessageTimestamps([])
+    }, [])
+
     return {
         state,
         updateState,
@@ -173,6 +180,7 @@ export function useDashboardState() {
         updateMetrics,
         updatePerformanceHistory,
         getMessageRate,
-        messageCount
+        messageCount,
+        resetToInitialState
     }
 } 

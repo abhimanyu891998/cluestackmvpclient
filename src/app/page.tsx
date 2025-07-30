@@ -1,18 +1,18 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Activity, AlertTriangle, TrendingUp, Users, Database, Zap, Clock } from 'lucide-react'
+import { Activity, AlertTriangle, TrendingUp, Users, Database, Zap, RefreshCw, Play, Square } from 'lucide-react'
 import { useWebSocket, WebSocketSingleton } from '@/hooks/useWebSocketSingleton'
 import { useDashboardState } from '@/hooks/useDashboardState'
 import { formatUTCTime } from '@/utils/datetime'
 import EventsRateChart from '@/components/EventsRateChart'
+import { buildApiUrl } from '@/config/api'
 
 export default function TradingDashboard() {
   const dashboardState = useDashboardState()
   const webSocketHook = useWebSocket(dashboardState)
   const { isConnected } = webSocketHook
   const { state } = dashboardState
-  const [incidentCount, setIncidentCount] = useState(0)
   const alertsScrollRef = useRef<HTMLDivElement>(null)
   const [lastSequenceId, setLastSequenceId] = useState(0)
   const [isUpdating, setIsUpdating] = useState(false)
@@ -22,11 +22,12 @@ export default function TradingDashboard() {
     dataAge: number;
     timestamp: string;
   } | null>(null)
-  const stalenessTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const [chartResetKey, setChartResetKey] = useState(0)
+  const [isResetting, setIsResetting] = useState(false)
+  const [isDataProcessing, setIsDataProcessing] = useState(false)
+  const [isPlayButtonLoading, setIsPlayButtonLoading] = useState(false)
 
   useEffect(() => {
-    setIncidentCount(state.incidents.length)
-
     // Auto-scroll to the top when new incidents are added
     if (alertsScrollRef.current && state.incidents.length > 0) {
       alertsScrollRef.current.scrollTop = 0
@@ -48,52 +49,32 @@ export default function TradingDashboard() {
     }
   }, [state.orderbook_data.sequence_id, lastSequenceId])
 
-  // Track staleness alerts and disconnect after 3 occurrences
+  // Immediately disconnect on staleness detection
   useEffect(() => {
+    // Skip staleness detection if we're in the middle of a reset
+    if (isResetting) {
+      console.log('⏸️ Skipping staleness detection during reset')
+      return
+    }
+    
     const isCurrentlyStale = state.orderbook_data.is_stale && (state.orderbook_data.data_age_ms ?? 0) > 300
     
     if (isCurrentlyStale && !isDisconnectedDueToStaleness) {
-      // Clear any existing timeout
-      if (stalenessTimeoutRef.current) {
-        clearTimeout(stalenessTimeoutRef.current)
-      }
+      console.log(`🚨 Staleness detected - Data age: ${state.orderbook_data.data_age_ms}ms - Immediately disconnecting`)
       
-      // Set a timeout to increment staleness count if condition persists
-      stalenessTimeoutRef.current = setTimeout(() => {
-        setStalenessAlertCount(prev => {
-          const newCount = prev + 1
-          console.log(`🚨 Staleness alert ${newCount}/1 - Data age: ${state.orderbook_data.data_age_ms}ms`)
-          
-          if (newCount >= 1) {
-            console.log('❌ 1 staleness alert reached - Disconnecting from trading')
-            // Small delay to allow UI to show the alert before disconnecting
-            setTimeout(() => {
-              setStalenessDisconnectInfo({
-                dataAge: state.orderbook_data.data_age_ms ?? 0,
-                timestamp: new Date().toISOString()
-              })
-              setIsDisconnectedDueToStaleness(true)
-              // Force disconnect the WebSocket
-              const wsInstance = WebSocketSingleton.getInstance()
-              wsInstance.disconnect()
-            }, 100)
-          }
-          
-          return newCount
-        })
-      }, 1000) // Wait 1 second to confirm staleness persists
-    } else if (!isCurrentlyStale && stalenessTimeoutRef.current) {
-      // Clear timeout if staleness condition resolves
-      clearTimeout(stalenessTimeoutRef.current)
-      stalenessTimeoutRef.current = null
+      // Immediately disconnect without warning
+      setStalenessDisconnectInfo({
+        dataAge: state.orderbook_data.data_age_ms ?? 0,
+        timestamp: new Date().toISOString()
+      })
+      setIsDisconnectedDueToStaleness(true)
+      setStalenessAlertCount(1)
+      
+      // Force disconnect the WebSocket
+      const wsInstance = WebSocketSingleton.getInstance()
+      wsInstance.disconnect()
     }
-    
-    return () => {
-      if (stalenessTimeoutRef.current) {
-        clearTimeout(stalenessTimeoutRef.current)
-      }
-    }
-  }, [state.orderbook_data.is_stale, state.orderbook_data.data_age_ms, isDisconnectedDueToStaleness])
+  }, [state.orderbook_data.is_stale, state.orderbook_data.data_age_ms, isDisconnectedDueToStaleness, isResetting])
 
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -122,13 +103,133 @@ export default function TradingDashboard() {
 
   const handleProfileSwitch = async (profileName: string) => {
     try {
-      await fetch(`http://127.0.0.1:8000/config/profile/${profileName}`, {
+      await fetch(buildApiUrl(`/config/profile/${profileName}`), {
         method: 'POST'
       })
     } catch (err) {
       console.error('Failed to switch profile:', err)
     }
   }
+
+  const handleResolveWithTrackdown = () => {
+    if (!stalenessDisconnectInfo) return
+    
+    const params = new URLSearchParams({
+      title: "TRADING STOPPED - Data Staleness Detected",
+      timestamp: stalenessDisconnectInfo.timestamp,
+      dataAgeMs: stalenessDisconnectInfo.dataAge.toString(),
+      scenario: state.metrics.current_scenario,
+      serverStatus: state.metrics.server_status,
+      activeClients: state.metrics.active_clients.toString(),
+      memoryUsage: state.metrics.memory_usage_mb.toString(),
+      processingDelay: state.metrics.processing_delay_ms.toString(),
+      alertCount: stalenessAlertCount.toString()
+    })
+    
+    // TODO: Replace with actual Trackdown URL when available
+    const trackdownUrl = `https://trackdown.example.com/incident?${params.toString()}`
+    
+    window.open(trackdownUrl, '_blank')
+  }
+
+  // Check processing status on component mount and periodically
+  useEffect(() => {
+    const checkProcessingStatus = async () => {
+      try {
+        const response = await fetch(buildApiUrl('/status/processing'))
+        if (response.ok) {
+          const data = await response.json()
+          setIsDataProcessing(data.status === 'running')
+        }
+      } catch (err) {
+        console.error('Failed to check processing status:', err)
+      }
+    }
+
+    checkProcessingStatus()
+    const interval = setInterval(checkProcessingStatus, 5000) // Check every 5 seconds
+    return () => clearInterval(interval)
+  }, [])
+
+  const handlePlayToggle = async () => {
+    if (isPlayButtonLoading) return
+    
+    setIsPlayButtonLoading(true)
+    
+    try {
+      if (isDataProcessing) {
+        // Stop data processing
+        console.log('🛑 Stopping data processing')
+        const response = await fetch(buildApiUrl('/stop'), {
+          method: 'POST'
+        })
+        if (response.ok) {
+          dashboardState.addLog('INFO', 'Data processing stopped by user')
+          setIsDataProcessing(false)
+          
+          // Disconnect WebSocket
+          const wsInstance = WebSocketSingleton.getInstance()
+          wsInstance.disconnect()
+        } else {
+          dashboardState.addLog('ERROR', 'Failed to stop data processing')
+        }
+      } else {
+        // Start data processing
+        console.log('▶️ Starting data processing')
+        
+        // Set resetting flag to prevent staleness detection during start
+        setIsResetting(true)
+        
+        const response = await fetch(buildApiUrl('/start'), {
+          method: 'POST'
+        })
+        if (response.ok) {
+          dashboardState.addLog('INFO', 'Data processing started')
+          
+          // Reset dashboard state to initial values
+          dashboardState.resetToInitialState()
+          
+          // Reset UI states
+          setIsDisconnectedDueToStaleness(false)
+          setStalenessDisconnectInfo(null)
+          setStalenessAlertCount(0)
+          setLastSequenceId(0)
+          setIsUpdating(false)
+          
+          // Reset chart
+          setChartResetKey(prev => prev + 1)
+          
+          // Connect WebSocket
+          const wsInstance = WebSocketSingleton.getInstance()
+          wsInstance.disconnect() // Ensure clean state
+          
+          // Switch to stable mode
+          await handleProfileSwitch('stable-mode')
+          
+          // Connect after a short delay
+          setTimeout(() => {
+            wsInstance.connect()
+            setIsDataProcessing(true)
+            // Clear resetting flag after connection
+            setTimeout(() => {
+              setIsResetting(false)
+              console.log('✅ Data processing started successfully')
+            }, 1000)
+          }, 1000)
+        } else {
+          dashboardState.addLog('ERROR', 'Failed to start data processing')
+          setIsResetting(false)
+        }
+      }
+    } catch (err) {
+      console.error('Failed to toggle data processing:', err)
+      dashboardState.addLog('ERROR', 'Failed to toggle data processing: Connection error')
+      setIsResetting(false)
+    } finally {
+      setIsPlayButtonLoading(false)
+    }
+  }
+
 
   const getModeDisplayInfo = (mode: string) => {
     switch (mode) {
@@ -177,32 +278,97 @@ export default function TradingDashboard() {
             <div className="flex items-center space-x-6">
               {/* Connection Status */}
               <div className="flex items-center space-x-2">
-                {isConnected ? (
+                {isConnected && isDataProcessing ? (
                   <div className="flex items-center space-x-2">
                     <div className={`w-2 h-2 bg-emerald-500 rounded-full transition-all duration-300 ${isUpdating ? 'animate-subtle-pulse' : 'animate-pulse'
                       }`}></div>
                     <span className="text-sm text-emerald-600 font-medium">LIVE</span>
                   </div>
+                ) : isDataProcessing ? (
+                  <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
+                    <span className="text-sm text-yellow-600 font-medium">CONNECTING</span>
+                  </div>
                 ) : (
                   <div className="flex items-center space-x-2">
-                    <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-                    <span className="text-sm text-red-600 font-medium">OFFLINE</span>
+                    <div className="w-2 h-2 bg-gray-500 rounded-full"></div>
+                    <span className="text-sm text-gray-600 font-medium">READY</span>
                   </div>
                 )}
               </div>
 
-              {/* Market Mode Switcher */}
+              {/* Control Buttons */}
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={handlePlayToggle}
+                  disabled={isPlayButtonLoading}
+                  className={`flex items-center space-x-1 px-3 py-1.5 text-sm font-medium rounded-md transition-all duration-200 ${
+                    isDataProcessing
+                      ? 'text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 hover:border-red-300'
+                      : 'text-green-600 bg-green-50 border border-green-200 hover:bg-green-100 hover:border-green-300'
+                  } ${isPlayButtonLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  title={isDataProcessing ? "Stop Data Processing" : "Start Data Processing"}
+                >
+                  {isPlayButtonLoading ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : isDataProcessing ? (
+                    <Square className="w-4 h-4" />
+                  ) : (
+                    <Play className="w-4 h-4" />
+                  )}
+                  <span>{isDataProcessing ? 'Stop' : 'Play'}</span>
+                </button>
+              </div>
+
+              {/* Market Mode Toggle */}
               <div className="flex items-center space-x-3">
                 <span className="text-sm font-medium text-black">Mode:</span>
-                <div className="flex items-center space-x-2">
-                  <select
-                    onChange={(e) => handleProfileSwitch(e.target.value)}
-                    value={state.metrics.current_scenario || "stable-mode"}
-                    className="text-sm font-medium text-black border border-gray-300 rounded-md px-2 py-1.5 bg-white shadow-sm hover:border-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500/30 focus:border-blue-500 transition-all duration-200 cursor-pointer w-auto"
-                  >
-                    <option value="stable-mode" className="py-2 text-black bg-white">Stable Mode</option>
-                    <option value="burst-mode" className="py-2 text-black bg-white">Burst Mode</option>
-                  </select>
+                <div className="flex items-center space-x-3">
+                  {/* Toggle Switch */}
+                  <div className="relative">
+                    <button
+                      onClick={() => handleProfileSwitch(
+                        (state.metrics.current_scenario || "stable-mode") === "stable-mode" 
+                          ? "burst-mode" 
+                          : "stable-mode"
+                      )}
+                      className="relative inline-flex h-6 w-11 items-center rounded-full bg-gray-200 transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 hover:bg-gray-300"
+                      style={{
+                        backgroundColor: (state.metrics.current_scenario || "stable-mode") === "burst-mode" 
+                          ? "#F59E0B" 
+                          : "#10B981"
+                      }}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ease-in-out ${
+                          (state.metrics.current_scenario || "stable-mode") === "burst-mode" 
+                            ? "translate-x-6" 
+                            : "translate-x-1"
+                        }`}
+                      />
+                    </button>
+                  </div>
+                  
+                  {/* Mode Labels */}
+                  <div className="flex items-center space-x-2">
+                    <span className={`text-sm font-medium transition-colors duration-200 ${
+                      (state.metrics.current_scenario || "stable-mode") === "stable-mode" 
+                        ? "text-emerald-600" 
+                        : "text-gray-500"
+                    }`}>
+                      Stable Mode
+                    </span>
+                    <span className="text-gray-400">|</span>
+                    <span className={`text-sm font-medium transition-colors duration-200 ${
+                      (state.metrics.current_scenario || "stable-mode") === "burst-mode" 
+                        ? "text-yellow-600" 
+                        : "text-gray-500"
+                    }`}>
+                      Burst Mode
+                    </span>
+                  </div>
+                  
+                  {/* Description Badge */}
                   <div className={`px-2 py-1 rounded-md text-xs font-medium ${getModeDisplayInfo(state.metrics.current_scenario || "stable-mode").color}`}>
                     {getModeDisplayInfo(state.metrics.current_scenario || "stable-mode").description}
                   </div>
@@ -220,47 +386,26 @@ export default function TradingDashboard() {
             <div className="flex items-center">
               <AlertTriangle className="w-5 h-5 text-red-600 mr-3" />
               <div>
-                <p className="font-medium text-red-800">TRADING STOPPED</p>
+                <p className="font-medium text-red-800">TRADING STOPPED - STALENESS DETECTED</p>
                 <p className="text-sm text-red-600 mt-1">
                   Stale data detected: {stalenessDisconnectInfo.dataAge}ms age • 
-                  Alert received: {formatUTCTime(new Date(stalenessDisconnectInfo.timestamp))}
+                  Disconnected: {formatUTCTime(new Date(stalenessDisconnectInfo.timestamp))}
                 </p>
                 <p className="text-xs text-red-500 mt-1">
-                  Connection terminated for safety after 1 staleness alert
+                  Connection terminated immediately upon staleness detection
                 </p>
               </div>
             </div>
-            <button className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+            <button 
+              onClick={handleResolveWithTrackdown}
+              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            >
               Resolve with Trackdown
             </button>
           </div>
         </div>
       )}
 
-      {/* Critical Staleness Alert */}
-      {state.orderbook_data.is_stale && (state.orderbook_data.data_age_ms ?? 0) > 300 && !isDisconnectedDueToStaleness && (
-        <div className="bg-red-50 border-l-4 border-red-400 mx-6 mt-4 mb-2 p-4 rounded-r-lg">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <AlertTriangle className="w-5 h-5 text-red-600 mr-3" />
-              <div>
-                <p className="font-medium text-red-800">CRITICAL: Data Staleness Detected ({stalenessAlertCount}/1)</p>
-                <p className="text-sm text-red-600 mt-1">
-                  Data received {(state.orderbook_data.data_age_ms ?? 0).toFixed(0)}ms ago - Processing lag detected
-                </p>
-                <p className="text-xs text-red-500 mt-1">
-                  Data Age = Time from exchange receipt to client delivery
-                </p>
-              </div>
-            </div>
-            {stalenessAlertCount >= 1 && (
-              <div className="text-red-800 text-sm font-bold animate-pulse">
-                ⚠️ TRADING WILL STOP
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Main Content */}
       <div className="p-4 flex flex-col">
@@ -341,8 +486,7 @@ export default function TradingDashboard() {
           className="flex gap-6 w-full" 
           style={{ 
             height: `calc(100vh - ${280 + 
-              (isDisconnectedDueToStaleness ? 72 : 0) + 
-              (state.orderbook_data.is_stale && (state.orderbook_data.data_age_ms ?? 0) > 300 && !isDisconnectedDueToStaleness ? 72 : 0)
+              (isDisconnectedDueToStaleness ? 72 : 0)
             }px)` 
           }}
         >
@@ -472,6 +616,7 @@ export default function TradingDashboard() {
           {/* Events Rate Chart - Right */}
           <div className="flex-1 h-full">
             <EventsRateChart 
+              key={chartResetKey}
               totalEventsReceived={state.metrics.total_events_received || 0}
               className="h-full"
               isConnected={isConnected}
