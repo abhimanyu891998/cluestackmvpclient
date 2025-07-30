@@ -35,7 +35,7 @@ const getServerUrl = (): string => {
 const getWebSocketUrl = (): string => {
   const serverUrl = getServerUrl();
   // Convert HTTP URL to WebSocket URL
-  return serverUrl.replace(/^https?/, 'ws');
+  return serverUrl.replace(/^https?/, 'wss');
 };
 
 export const API_CONFIG = {
