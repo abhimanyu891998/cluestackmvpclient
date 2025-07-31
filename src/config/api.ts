@@ -38,12 +38,21 @@ const getWebSocketUrl = (): string => {
   return serverUrl.replace(/^https?/, 'wss');
 };
 
+const getSSEUrl = (): string => {
+  const serverUrl = getServerUrl();
+  // SSE uses regular HTTP/HTTPS
+  return serverUrl;
+};
+
 export const API_CONFIG = {
   // Base server URL (HTTP)
   SERVER_URL: getServerUrl(),
   
   // WebSocket URL
   WS_URL: getWebSocketUrl(),
+  
+  // SSE URL
+  SSE_URL: getSSEUrl(),
   
   // API endpoints
   ENDPOINTS: {
@@ -56,7 +65,8 @@ export const API_CONFIG = {
     PROFILES: '/config/profiles',
     PROFILE_SWITCH: '/config/profile',
     PUBLISHER_STATUS: '/status/publisher',
-    WEBSOCKET: '/ws'
+    WEBSOCKET: '/ws',
+    SSE: '/events'
   }
 } as const;
 
@@ -69,11 +79,17 @@ export const buildWebSocketUrl = (): string => {
   return `${API_CONFIG.WS_URL}${API_CONFIG.ENDPOINTS.WEBSOCKET}`;
 };
 
+export const buildSSEUrl = (): string => {
+  return `${API_CONFIG.SSE_URL}${API_CONFIG.ENDPOINTS.SSE}`;
+};
+
 // Export individual URLs for convenience
 export const SERVER_URL = API_CONFIG.SERVER_URL;
 export const WS_URL = buildWebSocketUrl();
+export const SSE_URL = buildSSEUrl();
 
 console.log('🔧 API Configuration loaded:', {
   SERVER_URL: API_CONFIG.SERVER_URL,
-  WS_URL: API_CONFIG.WS_URL
+  WS_URL: API_CONFIG.WS_URL,
+  SSE_URL: API_CONFIG.SSE_URL
 });

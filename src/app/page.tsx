@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Activity, AlertTriangle, TrendingUp, Users, Database, Zap, RefreshCw, Play, Square } from 'lucide-react'
-import { useWebSocket, WebSocketSingleton } from '@/hooks/useWebSocketSingleton'
+import { useSSE, SSESingleton } from '@/hooks/useSSESingleton'
 import { useDashboardState } from '@/hooks/useDashboardState'
 import { formatUTCTime } from '@/utils/datetime'
 import EventsRateChart from '@/components/EventsRateChart'
@@ -10,8 +10,8 @@ import { buildApiUrl } from '@/config/api'
 
 export default function TradingDashboard() {
   const dashboardState = useDashboardState()
-  const webSocketHook = useWebSocket(dashboardState)
-  const { isConnected } = webSocketHook
+  const sseHook = useSSE(dashboardState)
+  const { isConnected } = sseHook
   const { state } = dashboardState
   const alertsScrollRef = useRef<HTMLDivElement>(null)
   const [lastSequenceId, setLastSequenceId] = useState(0)
@@ -70,9 +70,9 @@ export default function TradingDashboard() {
       setIsDisconnectedDueToStaleness(true)
       setStalenessAlertCount(1)
       
-      // Force disconnect the WebSocket
-      const wsInstance = WebSocketSingleton.getInstance()
-      wsInstance.disconnect()
+      // Force disconnect the SSE
+      const sseInstance = SSESingleton.getInstance()
+      sseInstance.disconnect()
     }
   }, [state.orderbook_data.is_stale, state.orderbook_data.data_age_ms, isDisconnectedDueToStaleness, isResetting])
 
@@ -167,9 +167,9 @@ export default function TradingDashboard() {
           dashboardState.addLog('INFO', 'Data processing stopped by user')
           setIsDataProcessing(false)
           
-          // Disconnect WebSocket
-          const wsInstance = WebSocketSingleton.getInstance()
-          wsInstance.disconnect()
+          // Disconnect SSE
+          const sseInstance = SSESingleton.getInstance()
+          sseInstance.disconnect()
         } else {
           dashboardState.addLog('ERROR', 'Failed to stop data processing')
         }
@@ -199,16 +199,16 @@ export default function TradingDashboard() {
           // Reset chart
           setChartResetKey(prev => prev + 1)
           
-          // Connect WebSocket
-          const wsInstance = WebSocketSingleton.getInstance()
-          wsInstance.disconnect() // Ensure clean state
+          // Connect SSE
+          const sseInstance = SSESingleton.getInstance()
+          sseInstance.disconnect() // Ensure clean state
           
           // Switch to stable mode
           await handleProfileSwitch('stable-mode')
           
           // Connect after a short delay
           setTimeout(() => {
-            wsInstance.connect()
+            sseInstance.connect()
             setIsDataProcessing(true)
             // Clear resetting flag after connection
             setTimeout(() => {
