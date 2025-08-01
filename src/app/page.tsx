@@ -56,12 +56,12 @@ export default function TradingDashboard() {
       console.log('⏸️ Skipping staleness detection during reset')
       return
     }
-    
+
     const isCurrentlyStale = state.orderbook_data.is_stale && (state.orderbook_data.data_age_ms ?? 0) > 300
-    
+
     if (isCurrentlyStale && !isDisconnectedDueToStaleness) {
       console.log(`🚨 Staleness detected - Data age: ${state.orderbook_data.data_age_ms}ms - Immediately disconnecting`)
-      
+
       // Immediately disconnect without warning
       setStalenessDisconnectInfo({
         dataAge: state.orderbook_data.data_age_ms ?? 0,
@@ -69,7 +69,7 @@ export default function TradingDashboard() {
       })
       setIsDisconnectedDueToStaleness(true)
       setStalenessAlertCount(1)
-      
+
       // Force disconnect the SSE
       const sseInstance = SSESingleton.getInstance()
       sseInstance.disconnect()
@@ -113,22 +113,25 @@ export default function TradingDashboard() {
 
   const handleResolveWithTrackdown = () => {
     if (!stalenessDisconnectInfo) return
-    
+
+    const incidentDate = new Date(stalenessDisconnectInfo.timestamp);
+    const time = incidentDate.toISOString().split('T')[1].split('.')[0] + ' UTC';
+    const date_input = incidentDate.toISOString().split('T')[0];
+    const data_age = stalenessDisconnectInfo.dataAge.toFixed(2);
+
+    const message = `Error: Data staleness detected: orderbook aged ${data_age}ms on date ${date_input} at time ${time}`;
+
     const params = new URLSearchParams({
-      title: "TRADING STOPPED - Data Staleness Detected",
-      timestamp: stalenessDisconnectInfo.timestamp,
-      dataAgeMs: stalenessDisconnectInfo.dataAge.toString(),
-      scenario: state.metrics.current_scenario,
-      serverStatus: state.metrics.server_status,
-      activeClients: state.metrics.active_clients.toString(),
-      memoryUsage: state.metrics.memory_usage_mb.toString(),
-      processingDelay: state.metrics.processing_delay_ms.toString(),
-      alertCount: stalenessAlertCount.toString()
+      time: time,
+      date_input: date_input,
+      message: message,
+      repository: process.env.NEXT_PUBLIC_REPOSITORY || 'abhimanyu891998/trackdownmvpserver26jun',
+      application: process.env.NEXT_PUBLIC_APPLICATION || 'marketdata-publisher',
+      data_age: `${data_age}ms`
     })
-    
-    // TODO: Replace with actual Trackdown URL when available
-    const trackdownUrl = `https://trackdown.example.com/incident?${params.toString()}`
-    
+
+    const trackdownUrl = `${process.env.NEXT_PUBLIC_TRACKDOWN_UI_URL}?${params.toString()}`
+
     window.open(trackdownUrl, '_blank')
   }
 
@@ -153,9 +156,9 @@ export default function TradingDashboard() {
 
   const handlePlayToggle = async () => {
     if (isPlayButtonLoading) return
-    
+
     setIsPlayButtonLoading(true)
-    
+
     try {
       if (isDataProcessing) {
         // Stop data processing
@@ -166,7 +169,7 @@ export default function TradingDashboard() {
         if (response.ok) {
           dashboardState.addLog('INFO', 'Data processing stopped by user')
           setIsDataProcessing(false)
-          
+
           // Disconnect SSE
           const sseInstance = SSESingleton.getInstance()
           sseInstance.disconnect()
@@ -176,36 +179,36 @@ export default function TradingDashboard() {
       } else {
         // Start data processing
         console.log('▶️ Starting data processing')
-        
+
         // Set resetting flag to prevent staleness detection during start
         setIsResetting(true)
-        
+
         const response = await fetch(buildApiUrl('/start'), {
           method: 'POST'
         })
         if (response.ok) {
           dashboardState.addLog('INFO', 'Data processing started')
-          
+
           // Reset dashboard state to initial values
           dashboardState.resetToInitialState()
-          
+
           // Reset UI states
           setIsDisconnectedDueToStaleness(false)
           setStalenessDisconnectInfo(null)
           setStalenessAlertCount(0)
           setLastSequenceId(0)
           setIsUpdating(false)
-          
+
           // Reset chart
           setChartResetKey(prev => prev + 1)
-          
+
           // Connect SSE
           const sseInstance = SSESingleton.getInstance()
           sseInstance.disconnect() // Ensure clean state
-          
+
           // Switch to stable mode
           await handleProfileSwitch('stable-mode')
-          
+
           // Connect after a short delay
           setTimeout(() => {
             sseInstance.connect()
@@ -302,11 +305,10 @@ export default function TradingDashboard() {
                 <button
                   onClick={handlePlayToggle}
                   disabled={isPlayButtonLoading}
-                  className={`flex items-center space-x-1 px-3 py-1.5 text-sm font-medium rounded-md transition-all duration-200 ${
-                    isDataProcessing
+                  className={`flex items-center space-x-1 px-3 py-1.5 text-sm font-medium rounded-md transition-all duration-200 ${isDataProcessing
                       ? 'text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 hover:border-red-300'
                       : 'text-green-600 bg-green-50 border border-green-200 hover:bg-green-100 hover:border-green-300'
-                  } ${isPlayButtonLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    } ${isPlayButtonLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
                   title={isDataProcessing ? "Stop Data Processing" : "Start Data Processing"}
                 >
                   {isPlayButtonLoading ? (
@@ -328,46 +330,43 @@ export default function TradingDashboard() {
                   <div className="relative">
                     <button
                       onClick={() => handleProfileSwitch(
-                        (state.metrics.current_scenario || "stable-mode") === "stable-mode" 
-                          ? "burst-mode" 
+                        (state.metrics.current_scenario || "stable-mode") === "stable-mode"
+                          ? "burst-mode"
                           : "stable-mode"
                       )}
                       className="relative inline-flex h-6 w-11 items-center rounded-full bg-gray-200 transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 hover:bg-gray-300"
                       style={{
-                        backgroundColor: (state.metrics.current_scenario || "stable-mode") === "burst-mode" 
-                          ? "#F59E0B" 
+                        backgroundColor: (state.metrics.current_scenario || "stable-mode") === "burst-mode"
+                          ? "#F59E0B"
                           : "#10B981"
                       }}
                     >
                       <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ease-in-out ${
-                          (state.metrics.current_scenario || "stable-mode") === "burst-mode" 
-                            ? "translate-x-6" 
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ease-in-out ${(state.metrics.current_scenario || "stable-mode") === "burst-mode"
+                            ? "translate-x-6"
                             : "translate-x-1"
-                        }`}
+                          }`}
                       />
                     </button>
                   </div>
-                  
+
                   {/* Mode Labels */}
                   <div className="flex items-center space-x-2">
-                    <span className={`text-sm font-medium transition-colors duration-200 ${
-                      (state.metrics.current_scenario || "stable-mode") === "stable-mode" 
-                        ? "text-emerald-600" 
+                    <span className={`text-sm font-medium transition-colors duration-200 ${(state.metrics.current_scenario || "stable-mode") === "stable-mode"
+                        ? "text-emerald-600"
                         : "text-gray-500"
-                    }`}>
+                      }`}>
                       Stable Mode
                     </span>
                     <span className="text-gray-400">|</span>
-                    <span className={`text-sm font-medium transition-colors duration-200 ${
-                      (state.metrics.current_scenario || "stable-mode") === "burst-mode" 
-                        ? "text-yellow-600" 
+                    <span className={`text-sm font-medium transition-colors duration-200 ${(state.metrics.current_scenario || "stable-mode") === "burst-mode"
+                        ? "text-yellow-600"
                         : "text-gray-500"
-                    }`}>
+                      }`}>
                       Burst Mode
                     </span>
                   </div>
-                  
+
                   {/* Description Badge */}
                   <div className={`px-2 py-1 rounded-md text-xs font-medium ${getModeDisplayInfo(state.metrics.current_scenario || "stable-mode").color}`}>
                     {getModeDisplayInfo(state.metrics.current_scenario || "stable-mode").description}
@@ -388,7 +387,7 @@ export default function TradingDashboard() {
               <div>
                 <p className="font-medium text-red-800">TRADING STOPPED - STALENESS DETECTED</p>
                 <p className="text-sm text-red-600 mt-1">
-                  Stale data detected: {stalenessDisconnectInfo.dataAge}ms age • 
+                  Stale data detected: {stalenessDisconnectInfo.dataAge}ms age •
                   Disconnected: {formatUTCTime(new Date(stalenessDisconnectInfo.timestamp))}
                 </p>
                 <p className="text-xs text-red-500 mt-1">
@@ -396,7 +395,7 @@ export default function TradingDashboard() {
                 </p>
               </div>
             </div>
-            <button 
+            <button
               onClick={handleResolveWithTrackdown}
               className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
             >
@@ -460,7 +459,7 @@ export default function TradingDashboard() {
                 <Activity className={`w-5 h-5 text-gray-600 transition-all duration-200 ${isUpdating ? 'animate-subtle-pulse' : ''}`} />
                 <div>
                   <div className={`text-sm font-medium transition-all duration-200 ${(state.orderbook_data.data_age_ms ?? 0) > 1000 ? 'text-red-500' :
-                      (state.orderbook_data.data_age_ms ?? 0) > 500 ? 'text-yellow-500' : 'text-emerald-500'
+                    (state.orderbook_data.data_age_ms ?? 0) > 500 ? 'text-yellow-500' : 'text-emerald-500'
                     }`}>
                     {state.orderbook_data.data_age_ms ? state.orderbook_data.data_age_ms.toFixed(0) + 'ms' : '0ms'}
                   </div>
@@ -482,12 +481,12 @@ export default function TradingDashboard() {
         </div>
 
         {/* Main Grid - Orderbook Left, Events Chart Right */}
-        <div 
-          className="flex gap-6 w-full" 
-          style={{ 
-            height: `calc(100vh - ${280 + 
+        <div
+          className="flex gap-6 w-full"
+          style={{
+            height: `calc(100vh - ${280 +
               (isDisconnectedDueToStaleness ? 72 : 0)
-            }px)` 
+              }px)`
           }}
         >
           {/* Orderbook Section - Left */}
@@ -513,7 +512,7 @@ export default function TradingDashboard() {
                   </div>
                   {state.orderbook_data.data_age_ms !== undefined && (
                     <div className={`font-medium transition-all duration-300 ${state.orderbook_data.data_age_ms > 1000 ? 'text-red-500' :
-                        state.orderbook_data.data_age_ms > 500 ? 'text-yellow-500' : 'text-emerald-500'
+                      state.orderbook_data.data_age_ms > 500 ? 'text-yellow-500' : 'text-emerald-500'
                       }`}>
                       Age: {state.orderbook_data.data_age_ms.toFixed(0)}ms
                     </div>
@@ -537,14 +536,14 @@ export default function TradingDashboard() {
                       const btcSize = parseFloat(bid[1])
                       const maxSize = Math.max(...state.orderbook_data.bids.slice(0, 15).map(b => parseFloat(b[1])))
                       const widthPercent = maxSize > 0 ? (btcSize / maxSize) * 100 : 0
-                      
+
                       return (
                         <div
                           key={index}
                           className={`relative flex justify-between text-sm py-1.5 px-2 rounded transition-all duration-200 hover:bg-emerald-50 ${index === 0 && isUpdating ? 'border-l-2 border-emerald-400 animate-subtle-slide-in' : ''
                             }`}
                           style={{
-                            background: index === 0 && isUpdating 
+                            background: index === 0 && isUpdating
                               ? `linear-gradient(to right, rgba(16, 185, 129, 0.15) ${widthPercent}%, transparent ${widthPercent}%)`
                               : `linear-gradient(to right, rgba(16, 185, 129, 0.08) ${widthPercent}%, transparent ${widthPercent}%)`
                           }}
@@ -574,14 +573,14 @@ export default function TradingDashboard() {
                       const btcSize = parseFloat(ask[1])
                       const maxSize = Math.max(...state.orderbook_data.asks.slice(0, 15).map(a => parseFloat(a[1])))
                       const widthPercent = maxSize > 0 ? (btcSize / maxSize) * 100 : 0
-                      
+
                       return (
                         <div
                           key={index}
                           className={`relative flex justify-between text-sm py-1.5 px-2 rounded transition-all duration-200 hover:bg-red-50 ${index === 0 && isUpdating ? 'border-l-2 border-red-400 animate-subtle-slide-in' : ''
                             }`}
                           style={{
-                            background: index === 0 && isUpdating 
+                            background: index === 0 && isUpdating
                               ? `linear-gradient(to right, rgba(239, 68, 68, 0.15) ${widthPercent}%, transparent ${widthPercent}%)`
                               : `linear-gradient(to right, rgba(239, 68, 68, 0.08) ${widthPercent}%, transparent ${widthPercent}%)`
                           }}
@@ -615,7 +614,7 @@ export default function TradingDashboard() {
 
           {/* Events Rate Chart - Right */}
           <div className="flex-1 h-full">
-            <EventsRateChart 
+            <EventsRateChart
               key={chartResetKey}
               totalEventsReceived={state.metrics.total_events_received || 0}
               className="h-full"
