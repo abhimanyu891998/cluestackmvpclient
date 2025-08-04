@@ -13,6 +13,7 @@ export default function ScenarioControls() {
   const [selectedScenario, setSelectedScenario] = useState('stable-mode')
   const [isSimulationRunning, setIsSimulationRunning] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [isStopped, setIsStopped] = useState(true)
 
   // Check simulation status on component mount and periodically
   useEffect(() => {
@@ -41,6 +42,12 @@ export default function ScenarioControls() {
   }, [])
 
   const switchScenario = async (scenario: string) => {
+    // Prevent scenario switching when stopped
+    if (isStopped || !isSimulationRunning) {
+      console.log('⚠️ Scenario switching disabled when application is stopped')
+      return
+    }
+
     setIsLoading(true)
     try {
       console.log(`Attempting to switch to scenario: ${scenario}`)
@@ -70,10 +77,17 @@ export default function ScenarioControls() {
     setIsLoading(true)
     try {
       console.log('Attempting to start simulation...')
-      // Note: The server automatically starts publishing when it starts up
-      // This endpoint doesn't exist, so we'll just update the local state
-      setIsSimulationRunning(true)
-      console.log('Simulation started successfully')
+      const response = await fetch(buildApiUrl('/start'), {
+        method: 'POST'
+      })
+      
+      if (response.ok) {
+        setIsSimulationRunning(true)
+        setIsStopped(false)
+        console.log('Simulation started successfully')
+      } else {
+        console.error('Failed to start simulation')
+      }
     } catch (error) {
       console.error('Error starting simulation:', error)
     } finally {
@@ -84,13 +98,20 @@ export default function ScenarioControls() {
   const stopSimulation = async () => {
     setIsLoading(true)
     try {
-      console.log('Attempting to stop simulation...')
-      // Note: The server doesn't have a stop endpoint
-      // This would need to be implemented on the server side
-      setIsSimulationRunning(false)
-      console.log('Simulation stopped successfully')
+      console.log('Attempting to stop simulation and all processes...')
+      const response = await fetch(buildApiUrl('/stop'), {
+        method: 'POST'
+      })
+      
+      if (response.ok) {
+        setIsSimulationRunning(false)
+        setIsStopped(true)
+        console.log('All processes stopped successfully')
+      } else {
+        console.error('Failed to stop all processes')
+      }
     } catch (error) {
-      console.error('Error stopping simulation:', error)
+      console.error('Error stopping all processes:', error)
     } finally {
       setIsLoading(false)
     }
@@ -114,8 +135,9 @@ export default function ScenarioControls() {
           <select
             value={selectedScenario}
             onChange={(e) => switchScenario(e.target.value)}
-            disabled={isLoading}
+            disabled={isLoading || isStopped || !isSimulationRunning}
             className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+            title={isStopped || !isSimulationRunning ? "Scenario switching disabled when stopped" : ""}
           >
             {scenarios.map((scenario) => (
               <option key={scenario.value} value={scenario.value}>
@@ -167,11 +189,12 @@ export default function ScenarioControls() {
               <button
                 key={scenario.value}
                 onClick={() => switchScenario(scenario.value)}
-                disabled={isLoading}
+                disabled={isLoading || isStopped || !isSimulationRunning}
                 className={`p-2 rounded-lg text-xs font-medium transition-colors ${selectedScenario === scenario.value
                   ? 'bg-blue-600 text-white'
                   : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
                   } disabled:opacity-50`}
+                title={isStopped || !isSimulationRunning ? "Scenario switching disabled when stopped" : ""}
               >
                 {scenario.label}
               </button>

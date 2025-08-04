@@ -61,7 +61,6 @@ export const API_CONFIG = {
     METRICS: '/metrics/summary',
     START: '/start',
     STOP: '/stop',
-    PROCESSING_STATUS: '/status/processing',
     PROFILES: '/config/profiles',
     PROFILE_SWITCH: '/config/profile',
     PUBLISHER_STATUS: '/status/publisher',

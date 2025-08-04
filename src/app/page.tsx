@@ -16,7 +16,7 @@ export default function TradingDashboard() {
   const alertsScrollRef = useRef<HTMLDivElement>(null)
   const [lastSequenceId, setLastSequenceId] = useState(0)
   const [isUpdating, setIsUpdating] = useState(false)
-  const [stalenessAlertCount, setStalenessAlertCount] = useState(0)
+  const [, setStalenessAlertCount] = useState(0)
   const [isDisconnectedDueToStaleness, setIsDisconnectedDueToStaleness] = useState(false)
   const [stalenessDisconnectInfo, setStalenessDisconnectInfo] = useState<{
     dataAge: number;
@@ -139,10 +139,10 @@ export default function TradingDashboard() {
   useEffect(() => {
     const checkProcessingStatus = async () => {
       try {
-        const response = await fetch(buildApiUrl('/status/processing'))
+        const response = await fetch(buildApiUrl('/status/publisher'))
         if (response.ok) {
           const data = await response.json()
-          setIsDataProcessing(data.status === 'running')
+          setIsDataProcessing(data.publisher?.is_running ?? false)
         }
       } catch (err) {
         console.error('Failed to check processing status:', err)
@@ -329,17 +329,29 @@ export default function TradingDashboard() {
                   {/* Toggle Switch */}
                   <div className="relative">
                     <button
-                      onClick={() => handleProfileSwitch(
-                        (state.metrics.current_scenario || "stable-mode") === "stable-mode"
-                          ? "burst-mode"
-                          : "stable-mode"
-                      )}
-                      className="relative inline-flex h-6 w-11 items-center rounded-full bg-gray-200 transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 hover:bg-gray-300"
+                      onClick={() => {
+                        if (isDataProcessing) {
+                          handleProfileSwitch(
+                            (state.metrics.current_scenario || "stable-mode") === "stable-mode"
+                              ? "burst-mode"
+                              : "stable-mode"
+                          )
+                        }
+                      }}
+                      disabled={!isDataProcessing}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                        !isDataProcessing 
+                          ? 'bg-gray-300 cursor-not-allowed opacity-50' 
+                          : 'bg-gray-200 hover:bg-gray-300'
+                      }`}
                       style={{
-                        backgroundColor: (state.metrics.current_scenario || "stable-mode") === "burst-mode"
+                        backgroundColor: !isDataProcessing 
+                          ? "#D1D5DB" 
+                          : (state.metrics.current_scenario || "stable-mode") === "burst-mode"
                           ? "#F59E0B"
                           : "#10B981"
                       }}
+                      title={!isDataProcessing ? "Toggle disabled when data processing is stopped" : "Switch between Stable and Burst modes"}
                     >
                       <span
                         className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ease-in-out ${(state.metrics.current_scenario || "stable-mode") === "burst-mode"
@@ -352,14 +364,20 @@ export default function TradingDashboard() {
 
                   {/* Mode Labels */}
                   <div className="flex items-center space-x-2">
-                    <span className={`text-sm font-medium transition-colors duration-200 ${(state.metrics.current_scenario || "stable-mode") === "stable-mode"
+                    <span className={`text-sm font-medium transition-colors duration-200 ${
+                        !isDataProcessing
+                        ? "text-gray-400"
+                        : (state.metrics.current_scenario || "stable-mode") === "stable-mode"
                         ? "text-emerald-600"
                         : "text-gray-500"
                       }`}>
                       Stable Mode
                     </span>
                     <span className="text-gray-400">|</span>
-                    <span className={`text-sm font-medium transition-colors duration-200 ${(state.metrics.current_scenario || "stable-mode") === "burst-mode"
+                    <span className={`text-sm font-medium transition-colors duration-200 ${
+                        !isDataProcessing
+                        ? "text-gray-400"
+                        : (state.metrics.current_scenario || "stable-mode") === "burst-mode"
                         ? "text-yellow-600"
                         : "text-gray-500"
                       }`}>
@@ -368,8 +386,12 @@ export default function TradingDashboard() {
                   </div>
 
                   {/* Description Badge */}
-                  <div className={`px-2 py-1 rounded-md text-xs font-medium ${getModeDisplayInfo(state.metrics.current_scenario || "stable-mode").color}`}>
-                    {getModeDisplayInfo(state.metrics.current_scenario || "stable-mode").description}
+                  <div className={`px-2 py-1 rounded-md text-xs font-medium ${
+                    !isDataProcessing 
+                      ? 'text-gray-500 bg-gray-100' 
+                      : getModeDisplayInfo(state.metrics.current_scenario || "stable-mode").color
+                  }`}>
+                    {!isDataProcessing ? 'Disabled' : getModeDisplayInfo(state.metrics.current_scenario || "stable-mode").description}
                   </div>
                 </div>
               </div>
