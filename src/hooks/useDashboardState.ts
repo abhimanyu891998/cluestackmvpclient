@@ -84,6 +84,11 @@ export function useDashboardState() {
     const [state, setState] = useState<DashboardState>(initialState)
     const [messageCount, setMessageCount] = useState(0)
     const [messageTimestamps, setMessageTimestamps] = useState<number[]>([])
+    const [scenarioUpdateTimeout, setScenarioUpdateTimeout] = useState<NodeJS.Timeout | null>(null)
+    const [userOverride, setUserOverride] = useState<{
+        scenario: string;
+        timestamp: number;
+    } | null>(null)
 
     const updateState = useCallback((updates: Partial<DashboardState>) => {
         setState(prev => ({ ...prev, ...updates }))
@@ -133,15 +138,59 @@ export function useDashboardState() {
 
     const updateMetrics = useCallback((metrics: Partial<Metrics>) => {
         console.log('updateMetrics called with:', metrics)
-        setState(prev => {
-            const newState = {
-                ...prev,
-                metrics: { ...prev.metrics, ...metrics }
+        
+        if (metrics.current_scenario) {
+            // Check if server scenario conflicts with user override
+            const shouldUpdateScenario = !userOverride || 
+                (Date.now() - userOverride.timestamp > 5000) ||
+                metrics.current_scenario === userOverride.scenario
+            
+            if (!shouldUpdateScenario) {
+                console.log(`🚫 Ignoring server scenario change due to user override: ${metrics.current_scenario}`)
+                // Update other metrics but keep current scenario
+                const { ...otherMetrics } = metrics
+                setState(prev => ({
+                    ...prev,
+                    metrics: { ...prev.metrics, ...otherMetrics }
+                }))
+                return
             }
-            console.log('New metrics state:', newState.metrics)
-            return newState
-        })
-    }, [])
+            
+            // Log scenario changes for debugging
+            if (metrics.current_scenario !== state.metrics.current_scenario) {
+                console.log(`🔄 Server scenario change: ${state.metrics.current_scenario} → ${metrics.current_scenario}`)
+            }
+            
+            // Clear existing timeout
+            if (scenarioUpdateTimeout) {
+                clearTimeout(scenarioUpdateTimeout)
+            }
+            
+            // Debounce scenario updates
+            const timeout = setTimeout(() => {
+                setState(prev => {
+                    const newState = {
+                        ...prev,
+                        metrics: { ...prev.metrics, ...metrics }
+                    }
+                    console.log('New metrics state (debounced):', newState.metrics)
+                    return newState
+                })
+            }, 300) // 300ms debounce
+            
+            setScenarioUpdateTimeout(timeout)
+        } else {
+            // Update non-scenario metrics immediately
+            setState(prev => {
+                const newState = {
+                    ...prev,
+                    metrics: { ...prev.metrics, ...metrics }
+                }
+                console.log('New metrics state:', newState.metrics)
+                return newState
+            })
+        }
+    }, [scenarioUpdateTimeout, userOverride, state.metrics.current_scenario])
 
     const updatePerformanceHistory = useCallback((memory: number, queue: number, delay: number, messageRate?: number) => {
         const now = new Date()
@@ -164,12 +213,31 @@ export function useDashboardState() {
         return recentMessages.length / 5 // messages per second
     }, [messageTimestamps])
 
+    const setUserScenarioOverride = useCallback((scenario: string) => {
+        console.log(`🔒 User override set for scenario: ${scenario}`)
+        setUserOverride({
+            scenario,
+            timestamp: Date.now()
+        })
+        
+        // Clear override after 5 seconds
+        setTimeout(() => {
+            console.log('🔓 User override cleared')
+            setUserOverride(null)
+        }, 5000)
+    }, [])
+
     const resetToInitialState = useCallback(() => {
         console.log('🔄 Resetting dashboard to initial state')
         setState(initialState)
         setMessageCount(0)
         setMessageTimestamps([])
-    }, [])
+        if (scenarioUpdateTimeout) {
+            clearTimeout(scenarioUpdateTimeout)
+            setScenarioUpdateTimeout(null)
+        }
+        setUserOverride(null)
+    }, [scenarioUpdateTimeout])
 
     return {
         state,
@@ -181,6 +249,7 @@ export function useDashboardState() {
         updatePerformanceHistory,
         getMessageRate,
         messageCount,
-        resetToInitialState
+        resetToInitialState,
+        setUserScenarioOverride
     }
 } 
