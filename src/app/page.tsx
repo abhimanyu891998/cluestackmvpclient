@@ -6,6 +6,7 @@ import { useSSE, SSESingleton } from '@/hooks/useSSESingleton'
 import { useDashboardState } from '@/hooks/useDashboardState'
 import { formatUTCTime } from '@/utils/datetime'
 import EventsRateChart from '@/components/EventsRateChart'
+import WelcomeModal from '@/components/WelcomeModal'
 import { buildApiUrl } from '@/config/api'
 
 export default function TradingDashboard() {
@@ -26,6 +27,11 @@ export default function TradingDashboard() {
   const [isResetting, setIsResetting] = useState(false)
   const [isDataProcessing, setIsDataProcessing] = useState(false)
   const [isPlayButtonLoading, setIsPlayButtonLoading] = useState(false)
+  const [showWelcomeModal, setShowWelcomeModal] = useState(true)
+
+  const handleCloseWelcomeModal = () => {
+    setShowWelcomeModal(false)
+  }
 
   useEffect(() => {
     // Auto-scroll to the top when new incidents are added
@@ -103,6 +109,9 @@ export default function TradingDashboard() {
 
   const handleProfileSwitch = async (profileName: string) => {
     try {
+      // Set user override to prevent server from immediately overriding the toggle
+      dashboardState.setUserScenarioOverride(profileName)
+      
       await fetch(buildApiUrl(`/config/profile/${profileName}`), {
         method: 'POST'
       })
@@ -646,6 +655,11 @@ export default function TradingDashboard() {
         </div>
       </div>
 
+      {/* Welcome Modal */}
+      <WelcomeModal 
+        isOpen={showWelcomeModal} 
+        onClose={handleCloseWelcomeModal} 
+      />
     </div>
   )
 }
